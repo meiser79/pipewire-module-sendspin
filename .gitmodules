@@ -1,0 +1,18 @@
+[submodule "external/sendspin-cpp"]
+	path = external/sendspin-cpp
+	url = https://github.com/Sendspin/sendspin-cpp.git
+[submodule "external/ArduinoJson"]
+	path = external/ArduinoJson
+	url = https://github.com/bblanchon/ArduinoJson.git
+[submodule "external/IXWebSocket"]
+	path = external/IXWebSocket
+	url = https://github.com/machinezone/IXWebSocket.git
+[submodule "external/micro-flac"]
+	path = external/micro-flac
+	url = https://github.com/esphome-libs/micro-flac.git
+[submodule "external/micro-opus"]
+	path = external/micro-opus
+	url = https://github.com/esphome-libs/micro-opus.git
+[submodule "external/noise-c"]
+	path = external/noise-c
+	url = https://github.com/esphome-libs/noise-c.git
