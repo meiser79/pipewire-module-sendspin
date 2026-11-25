@@ -1,0 +1,6 @@
+{
+    global:
+        pipewire__module_init;
+    local:
+        *;
+};
