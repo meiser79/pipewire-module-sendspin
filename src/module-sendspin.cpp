@@ -12,8 +12,9 @@
 //                on that playback stream (pavucontrol, wpctl, desktop mixers show them) and in the
 //                media controls. On whenever the player or MPRIS is.
 //   source@v1    A capture stream (default input, a chosen node, or the default sink's monitor)
-//                is offered to the server as a Live Input. Optional line-sense reports when a
-//                signal is present so the server can start playback automatically.
+//                is offered to the server as a Live Input. It always reports whether its input
+//                has a signal (absent unless detected from the level), so the server can start
+//                and stop it automatically.
 //
 // Threads:
 //   PipeWire main loop    module init/destroy, stream creation/destruction, property updates,
@@ -117,10 +118,10 @@ constexpr const char* KEY_SOURCE = "sendspin.source";
 constexpr const char* KEY_SOURCE_CODEC = "sendspin.source.codec";
 constexpr const char* KEY_SOURCE_CAPTURE_SINK = "sendspin.source.capture-sink";
 constexpr const char* KEY_SOURCE_VIRTUAL_SINK = "sendspin.source.virtual-sink";
-constexpr const char* KEY_SOURCE_LINE_SENSE = "sendspin.source.line-sense";
-constexpr const char* KEY_SOURCE_THRESHOLD = "sendspin.source.line-sense.threshold-db";
-constexpr const char* KEY_SOURCE_ATTACK = "sendspin.source.line-sense.attack-ms";
-constexpr const char* KEY_SOURCE_RELEASE = "sendspin.source.line-sense.release-ms";
+constexpr const char* KEY_SOURCE_SIGNAL_DETECT = "sendspin.source.signal-detect";
+constexpr const char* KEY_SOURCE_THRESHOLD = "sendspin.source.signal.threshold-db";
+constexpr const char* KEY_SOURCE_ATTACK = "sendspin.source.signal.attack-ms";
+constexpr const char* KEY_SOURCE_RELEASE = "sendspin.source.signal.release-ms";
 constexpr const char* KEY_SOURCE_PROPS = "source.props";
 constexpr const char* KEY_MPRIS = "sendspin.mpris";
 
@@ -145,10 +146,10 @@ const spa_dict_item module_info[] = {
      "( sendspin.source.codec=pcm|flac|opus ) "
      "( sendspin.source.capture-sink=<bool, default false> ) "
      "( sendspin.source.virtual-sink=<bool, default true unless capture-sink> ) "
-     "( sendspin.source.line-sense=<bool, default false> ) "
-     "( sendspin.source.line-sense.threshold-db=<dBFS, default -50> ) "
-     "( sendspin.source.line-sense.attack-ms=<ms, default 300> ) "
-     "( sendspin.source.line-sense.release-ms=<ms, default 5000> ) "
+     "( sendspin.source.signal-detect=<bool, default false> ) "
+     "( sendspin.source.signal.threshold-db=<dBFS, default -50> ) "
+     "( sendspin.source.signal.attack-ms=<ms, default 300> ) "
+     "( sendspin.source.signal.release-ms=<ms, default 5000> ) "
      "( source.props={ ... } )"},
     {PW_KEY_MODULE_VERSION, MODULE_VERSION},
 };
@@ -353,7 +354,7 @@ struct Config {
     sendspin::SendspinCodecFormat source_codec{sendspin::SendspinCodecFormat::PCM};
     bool capture_sink{false};
     bool virtual_sink{true};
-    bool line_sense{false};
+    bool signal_detect{false};
     double threshold_db{-50.0};
     uint32_t attack_ms{300};
     uint32_t release_ms{5000};
@@ -525,7 +526,7 @@ struct Impl {
     void log_connection_changes();
     void publish_mpris();
     void pump_source();
-    void line_sense(const int16_t* samples, size_t count);
+    void detect_signal(const int16_t* samples, size_t count);
 };
 
 // ==============================================================================================
@@ -864,7 +865,7 @@ void SourceListener::on_streaming_stopped() {
     impl->post_main([i = impl] { i->update_capture(); });
 }
 
-void Impl::line_sense(const int16_t* samples, size_t count) {
+void Impl::detect_signal(const int16_t* samples, size_t count) {
     if (count == 0) return;
     double sum = 0.0;
     for (size_t i = 0; i < count; ++i) {
@@ -889,14 +890,14 @@ void Impl::line_sense(const int16_t* samples, size_t count) {
     if (now - candidate_since_us < static_cast<int64_t>(required_ms) * 1000) return;
     signal_present = measured != 0;
     candidate_signal = -1;
-    ss_log(sendspin::LogLevel::DEBUG, "source: line signal %s", signal_present ? "present" : "absent");
+    ss_log(sendspin::LogLevel::DEBUG, "source: signal %s", signal_present ? "present" : "absent");
     source->set_signal(signal_present ? sendspin::SourceSignal::PRESENT
                                       : sendspin::SourceSignal::ABSENT);
 }
 
 void Impl::pump_source() {
     // Sendspin thread (the one producer write_audio() allows). Drain what the capture stream
-    // produced: feed line-sense, and while the input stream is open hand the audio to the library,
+    // produced: feed the signal detection, and while the input stream is open hand the audio to the library,
     // which chunks it. Each write is stamped on one sample-count timeline that is slowly slewed
     // toward the graph clock, so the stream's timestamps are continuous and free of the jitter of
     // the individual graph cycles.
@@ -904,9 +905,9 @@ void Impl::pump_source() {
     if (!streaming) src_anchored = false;
     while (CaptureSlot* slot = capture_slots->front()) {
         const size_t bytes = static_cast<size_t>(slot->frames) * SOURCE_BPF;
-        if (cfg.line_sense) {
-            line_sense(reinterpret_cast<const int16_t*>(slot->data),
-                       static_cast<size_t>(slot->frames) * SOURCE_CHANNELS);
+        if (cfg.signal_detect) {
+            detect_signal(reinterpret_cast<const int16_t*>(slot->data),
+                          static_cast<size_t>(slot->frames) * SOURCE_CHANNELS);
         }
         if (streaming && slot->frames > 0) {
             const int64_t predicted =
@@ -1004,7 +1005,7 @@ const pw_stream_events capture_events = [] {
 
 void Impl::update_capture() {
     // Recording from an existing input, the capture stream exists only while it is needed: while
-    // the server streams the input, or permanently when line-sense has to watch the signal.
+    // the server streams the input, or permanently when the signal detection has to watch the level.
     // Otherwise nothing holds the microphone/line-in open.
     //
     // As a virtual sink it must always exist, so applications can pick it as an output. It is
@@ -1012,11 +1013,11 @@ void Impl::update_capture() {
     // silent sink still delivers a continuous (silent) timeline instead of going quiet on the
     // wire, and an idle one lets the graph suspend.
     const bool needed =
-        cfg.source && (cfg.virtual_sink || source_streaming.load() || cfg.line_sense);
+        cfg.source && (cfg.virtual_sink || source_streaming.load() || cfg.signal_detect);
     if (needed && capture == nullptr) create_capture();
     if (!needed && capture != nullptr) destroy_capture();
     if (capture != nullptr && cfg.virtual_sink && !core_gone) {
-        const bool process = source_streaming.load() || cfg.line_sense;
+        const bool process = source_streaming.load() || cfg.signal_detect;
         const spa_dict_item item = {PW_KEY_NODE_ALWAYS_PROCESS, process ? "true" : "false"};
         const spa_dict dict = SPA_DICT_INIT(&item, 1);
         pw_stream_update_properties(capture->stream, &dict);
@@ -1036,7 +1037,7 @@ void Impl::create_capture() {
             PW_KEY_DEVICE_ICON_NAME,
             "audio-speakers", SPA_KEY_AUDIO_POSITION, "FL,FR", PW_KEY_NODE_LATENCY,
             "960/48000", PW_KEY_NODE_ALWAYS_PROCESS,
-            (source_streaming.load() || cfg.line_sense) ? "true" : "false", nullptr);
+            (source_streaming.load() || cfg.signal_detect) ? "true" : "false", nullptr);
     } else {
         props = pw_properties_new(
             PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Capture", PW_KEY_MEDIA_ROLE,
@@ -1373,7 +1374,7 @@ bool parse_config(Config& c, const pw_properties* props) {
         pw_log_warn("%s overrides %s", KEY_SOURCE_VIRTUAL_SINK, KEY_SOURCE_CAPTURE_SINK);
         c.capture_sink = false;
     }
-    c.line_sense = parse_bool(pw_properties_get(props, KEY_SOURCE_LINE_SENSE), false);
+    c.signal_detect = parse_bool(pw_properties_get(props, KEY_SOURCE_SIGNAL_DETECT), false);
     c.threshold_db = parse_num<double>(pw_properties_get(props, KEY_SOURCE_THRESHOLD), -50.0,
                                        -120.0, 0.0, KEY_SOURCE_THRESHOLD);
     c.attack_ms = parse_num<uint32_t>(pw_properties_get(props, KEY_SOURCE_ATTACK), 300, 0, 600000,
@@ -1558,7 +1559,6 @@ int module_init(pw_impl_module* module, const char* args) {
         sc.sample_rate = SOURCE_RATE;
         sc.channels = SOURCE_CHANNELS;
         sc.bit_depth = SOURCE_BITS;
-        sc.line_sense = cfg.line_sense;
         // Room for one PipeWire quantum of up to SOURCE_SLOT_FRAMES per write (a write may take
         // at most half the buffer) and for network stalls.
         sc.capture_buffer_ms = 1000;
@@ -1566,7 +1566,6 @@ int module_init(pw_impl_module* module, const char* args) {
         impl->source = &impl->client->add_source(std::move(sc));
         impl->source_listener = std::make_unique<SourceListener>(impl);
         impl->source->set_listener(impl->source_listener.get());
-        if (cfg.line_sense) impl->source->set_signal(sendspin::SourceSignal::ABSENT);
     }
 
     if (!impl->client->start()) {
@@ -1619,7 +1618,7 @@ int module_init(pw_impl_module* module, const char* args) {
         impl->server_name = *n;
         impl->ss_server_name = *n;
     }
-    if (cfg.source) impl->update_capture();  // opens the input now if line-sense needs it
+    if (cfg.source) impl->update_capture();  // opens the input now if the signal detection needs it
 
     impl->running.store(true);
     try {

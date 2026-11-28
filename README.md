@@ -8,7 +8,7 @@ switched on and off separately:
 |---|---|---|---|
 | `player@v1` | `sendspin.player` | `true` | Music Assistant plays to this computer. Audio is decoded (FLAC/Opus/PCM), clock-synchronised with the other players in the group and played through a **playback stream** (`sendspin.player`) in the PipeWire graph. |
 | `metadata@v1` | | with `sendspin.player` or `sendspin.mpris` | Title / artist / album of the current track are set as `media.*` properties on that playback stream (pavucontrol, `wpctl status`, desktop mixers) and shown in the media controls. |
-| `source@v1` | `sendspin.source` | `true` | A virtual output device that applications play to (default), or this computer's input (default input, a chosen node, the monitor of the default sink) becomes a **Live Input** in Music Assistant. Optional line-sense reports signal presence so MA can start playback automatically. |
+| `source@v1` | `sendspin.source` | `true` | A virtual output device that applications play to (default), or this computer's input (default input, a chosen node, the monitor of the default sink) becomes a **Live Input** in Music Assistant. It always reports whether the input has a signal; detected from the level (`sendspin.source.signal-detect`), that lets MA start and stop playback automatically. |
 
 At least one of `sendspin.player` / `sendspin.source` must be enabled.
 
@@ -37,14 +37,14 @@ This project was created with the assistance of Claude.
   Inputs use); sendspin-cpp sends it in 20 ms chunks (PCM, or FLAC/Opus with
   `sendspin.source.codec`) timestamped on the synchronised server clock. The capture stream only exists while the server has the input
   started, so the microphone/line-in is not held open otherwise. With
-  line-sense enabled it stays open to watch the signal level. It shows up in
+  `sendspin.source.signal-detect` it stays open to watch the level. It shows up in
   pavucontrol's **Recording** tab only while it exists.
 * **Virtual sink** (`sendspin.source.virtual-sink`, on by default): the source is an
   output device, *"&lt;server name&gt; [Sendspin]"* (e.g. *"Music Assistant [Sendspin]"*;
   just *"Sendspin"* until a server has connected once), listed with your speakers.
   Send any application (or the whole desktop) to it, and that audio is the
   Live Input. The device is always present; it only keeps processing while
-  Music Assistant plays the input (or line-sense is on), so an idle sink lets
+  Music Assistant plays the input (or signal detection is on), so an idle sink lets
   the graph suspend.
 * **Pairing:** a paired server is always admitted; an unpaired one only while
   `sendspin.unpaired-access` is on. The Noise identity key (from which the
@@ -128,7 +128,7 @@ args = {
   sendspin.player = true          # player@v1
   sendspin.source = true          # source@v1
   sendspin.source.capture-sink = false
-  sendspin.source.line-sense   = true
+  sendspin.source.signal-detect = true
   #player.props = { target.object = "alsa_output.…" }
   #source.props = { target.object = "alsa_input.…" }
 }
@@ -165,10 +165,10 @@ pipewire -c "$PWD/sendspin-client.conf"
 | `sendspin.source.codec` | `pcm` | Input stream codec: `pcm`, `flac` or `opus` (PCM if the server does not accept it) |
 | `sendspin.source.capture-sink` | `false` | Capture the default sink's monitor instead (turns the virtual sink off unless it is set explicitly) |
 | `sendspin.source.virtual-sink` | `true` (`false` with `capture-sink`) | Create an output device that applications play to; that audio is the Live Input. `false` records an input instead |
-| `sendspin.source.line-sense` | `false` | Report signal present/absent |
-| `sendspin.source.line-sense.threshold-db` | `-50` | RMS threshold, dBFS |
-| `sendspin.source.line-sense.attack-ms` | `300` | Signal must be above the threshold this long before it counts as present |
-| `sendspin.source.line-sense.release-ms` | `5000` | Signal must be below the threshold this long before it counts as absent |
+| `sendspin.source.signal-detect` | `false` | Detect the input's signal from its level. The signal is always reported; without detection it is absent, so the server starts the input only when asked to |
+| `sendspin.source.signal.threshold-db` | `-50` | RMS threshold, dBFS |
+| `sendspin.source.signal.attack-ms` | `300` | Signal must be above the threshold this long before it counts as present |
+| `sendspin.source.signal.release-ms` | `5000` | Signal must be below the threshold this long before it counts as absent |
 | `source.props` | | Extra properties for the capture stream |
 
 ## Limitations
