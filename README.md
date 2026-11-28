@@ -84,7 +84,7 @@ the versions sendspin-cpp expects:
 
 | Submodule | Version |
 |---|---|
-| [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) | `f49a5bf` (main after v0.10.0) |
+| [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) | `96e002d` from the fork [meiser79/sendspin-cpp](https://github.com/meiser79/sendspin-cpp): main after v0.10.0 plus [#287](https://github.com/Sendspin/sendspin-cpp/pull/287) (no `source@v1_support` in `client/hello`, Sendspin/spec#335) |
 | [ArduinoJson](https://github.com/bblanchon/ArduinoJson) | v7.4.1 |
 | [IXWebSocket](https://github.com/machinezone/IXWebSocket) | v12.0.1 |
 | [micro-flac](https://github.com/esphome-libs/micro-flac) (+ micro-ogg-demuxer) | v0.3.1 |

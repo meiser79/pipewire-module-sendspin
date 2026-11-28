@@ -1,6 +1,6 @@
 [submodule "external/sendspin-cpp"]
 	path = external/sendspin-cpp
-	url = https://github.com/Sendspin/sendspin-cpp.git
+	url = https://github.com/meiser79/sendspin-cpp.git
 [submodule "external/ArduinoJson"]
 	path = external/ArduinoJson
 	url = https://github.com/bblanchon/ArduinoJson.git

@@ -74,9 +74,12 @@ else()
 endif()
 set(SENDSPIN_SOURCE_DIR "${_sendspin_default}" CACHE PATH
     "Path to a sendspin-cpp source tree")
-set(SENDSPIN_GIT_REPOSITORY "https://github.com/Sendspin/sendspin-cpp.git" CACHE STRING
+# The fork commit of Sendspin/sendspin-cpp#287 (no client source@v1_support, the source signal always
+# reported, Sendspin/spec#335), the same commit as the submodule, until that is in a release.
+set(SENDSPIN_GIT_REPOSITORY "https://github.com/meiser79/sendspin-cpp.git" CACHE STRING
     "sendspin-cpp repository used when SENDSPIN_SOURCE_DIR is empty")
-set(SENDSPIN_GIT_TAG "main" CACHE STRING "sendspin-cpp revision used with SENDSPIN_GIT_REPOSITORY")
+set(SENDSPIN_GIT_TAG "96e002da70810feeb1d6243e80c82b3bf233b2fa" CACHE STRING
+    "sendspin-cpp revision used with SENDSPIN_GIT_REPOSITORY")
 
 if(SENDSPIN_SOURCE_DIR AND EXISTS "${SENDSPIN_SOURCE_DIR}/CMakeLists.txt")
     message(STATUS "Using sendspin-cpp from ${SENDSPIN_SOURCE_DIR}")
@@ -84,10 +87,16 @@ if(SENDSPIN_SOURCE_DIR AND EXISTS "${SENDSPIN_SOURCE_DIR}/CMakeLists.txt")
 elseif(NOT SENDSPIN_SOURCE_DIR)
     include(FetchContent)
     message(STATUS "Fetching sendspin-cpp ${SENDSPIN_GIT_TAG} from ${SENDSPIN_GIT_REPOSITORY}")
+    # A shallow clone can only check out a branch or tag, not a commit hash.
+    if(SENDSPIN_GIT_TAG MATCHES "^[0-9a-f]+$")
+        set(_sendspin_shallow FALSE)
+    else()
+        set(_sendspin_shallow TRUE)
+    endif()
     FetchContent_Declare(sendspin
         GIT_REPOSITORY ${SENDSPIN_GIT_REPOSITORY}
         GIT_TAG        ${SENDSPIN_GIT_TAG}
-        GIT_SHALLOW    TRUE)
+        GIT_SHALLOW    ${_sendspin_shallow})
     FetchContent_GetProperties(sendspin)
     if(NOT sendspin_POPULATED)
         FetchContent_Populate(sendspin)
